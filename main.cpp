@@ -1,5 +1,4 @@
 #include "opencv2/opencv.hpp"
-/*alo*/
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_audio.h>
 #include <allegro5/allegro_acodec.h> 
@@ -11,7 +10,7 @@
 using namespace cv;
 using namespace std;
 
-uchar thres[3][2] = { {235, 255}, {0, 200}, {0, 200} };
+uchar thres[3][2] = { {200, 255}, {0, 175}, {0, 175} };
 
 #define STATE_SHOT 1
 #define STATE_WAIT 0
@@ -21,6 +20,7 @@ uchar thres[3][2] = { {235, 255}, {0, 200}, {0, 200} };
 #define ARROW_RIGHT	65363
 #define ARROW_DOWN 	65364
 #define ESC		27
+#define SPACE           32
 
 struct Shot
 {
@@ -30,6 +30,11 @@ struct Shot
 	Mat img;
 	double offset;
 };
+
+bool compare_y( Point2f a, Point2f b )
+{
+	return ( a.y > b.y ) ? true : false;	
+}
 
 void *cmdThread(void *a)
 {
@@ -57,7 +62,7 @@ void *cmdThread(void *a)
 
 ALLEGRO_SAMPLE *init_allegro()
 {
-//	al_init();
+	al_init();
 	al_install_audio();
 	al_init_acodec_addon();
 	al_reserve_samples(10);
@@ -72,18 +77,58 @@ ALLEGRO_SAMPLE *init_allegro()
 	return smp;
 }
 
+void mouse_click( int e, int x, int y, int, void *arg )
+{
+	vector<Point2f> *persp_quad = (vector<Point2f> *) arg;
+
+	if ( e == CV_EVENT_LBUTTONDOWN )
+		if ( persp_quad->size() < 4 )
+			persp_quad->push_back( Point2f(x, y) );
+}
+
+void image_perspective( Mat &frame, Mat &out, vector<Point2f> &persp_quad )
+{
+	double alpha = 0.0f;
+	double w = frame.cols,
+		h = frame.rows;;
+	Point2f inp[4];
+	Point2f outp[4];
+
+	sort( persp_quad.begin(), persp_quad.end(), compare_y );
+
+	if ( persp_quad[0].x < persp_quad[1].x )
+		swap( persp_quad[0], persp_quad[1] );
+
+	if ( persp_quad[2].x < persp_quad[3].x )
+		swap( persp_quad[2], persp_quad[3] );
+
+
+	inp[0] = persp_quad[0];
+	inp[1] = persp_quad[1];
+	inp[2] = persp_quad[2];
+	inp[3] = persp_quad[3];
+
+
+	outp[0] = Point2f( w, h );
+	outp[2] = Point2f( w, 0 );
+	outp[1] = Point2f( 0, h );
+	outp[3] = Point2f( 0, 0 );;		
+
+	Mat m = getPerspectiveTransform( inp, outp ); 
+
+	warpPerspective( frame, out, m, Size( w, h ) );
+}
+		
+
 int main(int argc, char** argv)
 {
+	// Init video capture device
 	int devid = 0;
 
 	if (argc > 1)
 		devid = atoi(argv[1]);
 
-	// Init video capture device
 	VideoCapture capt(devid);
-
-	capt.set(CV_CAP_PROP_FRAME_WIDTH,1280);
-	capt.set(CV_CAP_PROP_FRAME_HEIGHT,720);
 
 	if (!capt.isOpened()) {
 		cout << "Error opening default cam!" << endl;
@@ -109,11 +154,18 @@ int main(int argc, char** argv)
 		capt.get(CV_CAP_PROP_FRAME_HEIGHT) / 2);
 	
 	vector<Point> shots;
+	vector<Point2f> persp_quad;
+	
+	setMouseCallback( "Flat", mouse_click, &persp_quad );
+	
 	int state = STATE_WAIT;
 	while (true) {
 		Mat frame, copy;
 		int sx, sy, n;
 		bool res = capt.read(frame);
+
+		if ( persp_quad.size() == 4 )
+			image_perspective( frame, frame, persp_quad );
 	
 		copy = frame.clone();
 		if (!res) {
@@ -127,6 +179,15 @@ int main(int argc, char** argv)
 			Scalar(0, 255, 0), 2, 8, 0);
 		line(copy, center - Point(0, 15), center + Point(0, 15),
 			Scalar(0, 255, 0), 2, 8, 0);
+
+		if ( persp_quad.size() != 4 )
+			for ( int i = 0; i < persp_quad.size(); ++i )
+			{
+				int dest = (i+1 != persp_quad.size()) ? i+1 : 0;
+				line( copy, persp_quad[i], persp_quad[dest],
+					Scalar(0, 0, 255), 2, 8, 0 );
+
+			}
 
 
 		imshow("Flat", copy);
@@ -189,6 +250,7 @@ int main(int argc, char** argv)
 		// Key pressing events proccessing
 		// If 'esc' key is pressed, break loop
 		int key = waitKey(30);
+	
 		if (key == ESC) {
 			cout << "esc key is pressed by user" << endl;
 			break;
@@ -205,6 +267,9 @@ int main(int argc, char** argv)
 				break;
 			case ARROW_DOWN:
 				center += Point(0, 1);
+				break;
+			case SPACE:
+				persp_quad.clear();
 				break;
 			}
 		
