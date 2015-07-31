@@ -10,8 +10,6 @@
 using namespace cv;
 using namespace std;
 
-uchar thres[3][2] = { {200, 255}, {0, 175}, {0, 175} };
-
 #define STATE_SHOT 1
 #define STATE_WAIT 0
 
@@ -22,6 +20,8 @@ uchar thres[3][2] = { {200, 255}, {0, 175}, {0, 175} };
 #define ESC		27
 #define SPACE           32
 
+uchar thres[3][2] = { {200, 255}, {0, 200}, {0, 200} };
+
 struct Shot
 {
 	Shot(Mat *i, double o)
@@ -31,18 +31,10 @@ struct Shot
 	double offset;
 };
 
-bool compare_y( Point2f a, Point2f b )
-{
-	return ( a.y > b.y ) ? true : false;	
-}
-
 void *cmdThread(void *a)
 {
 	uchar tmp[3][2];
 	uint tmpPause;
-
-//	ALLEGRO_SAMPLE *march = al_load_sample("march.wav");
-//	al_play_sample( march, 0.75f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL );
 	
 	while (true) {
 		scanf("%d:%d %d:%d %d:%d\n",
@@ -57,68 +49,106 @@ void *cmdThread(void *a)
 		thres[2][0] = (tmp[2][0] != -1) ? tmp[2][0] : thres[2][0];
 		thres[2][1] = (tmp[2][1] != -1) ? tmp[2][1] : thres[2][1];
 	}
+
 	return NULL;
 }
 
-ALLEGRO_SAMPLE *init_allegro()
+void init_allegro()
 {
 	al_init();
 	al_install_audio();
 	al_init_acodec_addon();
 	al_reserve_samples(10);
-	
-	ALLEGRO_SAMPLE *smp = al_load_sample("shot.wav");
-
-	if (!smp) {
-		printf("Cannot load file\n");
-		exit(-1);	
-	}
-
-	return smp;
 }
 
-void mouse_click( int e, int x, int y, int, void *arg )
+void mouse_click(int e, int x, int y, int, void *arg)
 {
 	vector<Point2f> *persp_quad = (vector<Point2f> *) arg;
 
-	if ( e == CV_EVENT_LBUTTONDOWN )
-		if ( persp_quad->size() < 4 )
-			persp_quad->push_back( Point2f(x, y) );
+	if (e == CV_EVENT_LBUTTONDOWN)
+		if (persp_quad->size() < 4)
+			persp_quad->push_back(Point2f(x, y));
 }
 
-void image_perspective( Mat &frame, Mat &out, vector<Point2f> &persp_quad )
+bool compare_y(Point2f a, Point2f b)
+{
+	return (a.y > b.y) ? true : false;	
+}
+
+void image_perspective(Mat &frame, Mat &out, vector<Point2f> &persp_quad)
 {
 	double alpha = 0.0f;
-	double w = frame.cols,
-		h = frame.rows;;
-	Point2f inp[4];
-	Point2f outp[4];
+	double w = frame.cols, h = frame.rows;;
+	Point2f inp[4], outp[4];
 
-	sort( persp_quad.begin(), persp_quad.end(), compare_y );
+	sort(persp_quad.begin(), persp_quad.end(), compare_y);
 
-	if ( persp_quad[0].x < persp_quad[1].x )
-		swap( persp_quad[0], persp_quad[1] );
+	if (persp_quad[0].x < persp_quad[1].x)
+		swap(persp_quad[0], persp_quad[1]);
 
-	if ( persp_quad[2].x < persp_quad[3].x )
-		swap( persp_quad[2], persp_quad[3] );
-
+	if (persp_quad[2].x < persp_quad[3].x)
+		swap(persp_quad[2], persp_quad[3]);
 
 	inp[0] = persp_quad[0];
 	inp[1] = persp_quad[1];
 	inp[2] = persp_quad[2];
 	inp[3] = persp_quad[3];
 
+	outp[0] = Point2f(w, h);
+	outp[2] = Point2f(w, 0);
+	outp[1] = Point2f(0, h);
+	outp[3] = Point2f(0, 0);;		
 
-	outp[0] = Point2f( w, h );
-	outp[2] = Point2f( w, 0 );
-	outp[1] = Point2f( 0, h );
-	outp[3] = Point2f( 0, 0 );;		
+	Mat m = getPerspectiveTransform(inp, outp); 
 
-	Mat m = getPerspectiveTransform( inp, outp ); 
-
-	warpPerspective( frame, out, m, Size( w, h ) );
+	warpPerspective(frame, out, m, Size(w, h));
 }
-		
+
+Point2f center_point( const vector<Point2f> *v )
+{
+	Point2f sp;
+
+	sp.x = sp.x = 0.0;
+
+	for ( int i = 0; i < v->size(); ++i )
+		sp += (*v)[i];
+
+	sp.x *= 1.0 / double(v->size());
+	sp.y *= 1.0 / double(v->size());
+
+	return sp;
+}
+	
+bool find_laser_point(Mat &frame, Point2f *point)
+{
+	int n = 0;
+	*point = Point2f(0.0, 0.0);
+
+	vector<Point2f> l_points;
+
+	for (int y = 0; y < frame.rows; y++)
+		for (int x = 0; x < frame.cols; x++){
+			uchar b = frame.data[frame.channels()*(frame.cols*y + x) + 0];
+			uchar g = frame.data[frame.channels()*(frame.cols*y + x) + 1];
+			uchar r = frame.data[frame.channels()*(frame.cols*y + x) + 2];
+
+			if (r >= thres[0][0] && r <= thres[0][1]
+				&& g >= thres[1][0] && g <= thres[1][1]
+				&& b >= thres[2][0] && b <= thres[2][1]) {
+				l_points.push_back(Point2f(x,y));
+				n++;
+			}
+			else {
+				frame.data[frame.channels()*(frame.cols*y + x) + 0] = 0;
+				frame.data[frame.channels()*(frame.cols*y + x) + 1] = 0;
+				frame.data[frame.channels()*(frame.cols*y + x) + 2] = 0;
+			}
+		}
+
+	*point = center_point( &l_points );
+
+	return n > 0;
+}
 
 int main(int argc, char** argv)
 {
@@ -137,9 +167,12 @@ int main(int argc, char** argv)
 	}
 	
 	// Init allegro
-	ALLEGRO_SAMPLE *shot_sound = init_allegro();
-//	ALLEGRO_SAMPLE *headshot_sound = al_load_sample("headshot.wav");
+	init_allegro();
+	ALLEGRO_SAMPLE *shot_sound = al_load_sample("shot.wav");
+	ALLEGRO_SAMPLE *march = al_load_sample("march.wav");
+	ALLEGRO_SAMPLE *headshot_sound = al_load_sample("headshot.wav");
 	
+//	al_play_sample( march, 0.75f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL );
 
 	// Create thread for calibration input
 	pthread_t thr;
@@ -161,7 +194,8 @@ int main(int argc, char** argv)
 	int state = STATE_WAIT;
 	while (true) {
 		Mat frame, copy;
-		int sx, sy, n;
+		Point2f pt;
+		bool n ;
 		bool res = capt.read(frame);
 
 		if ( persp_quad.size() == 4 )
@@ -186,34 +220,12 @@ int main(int argc, char** argv)
 				int dest = (i+1 != persp_quad.size()) ? i+1 : 0;
 				line( copy, persp_quad[i], persp_quad[dest],
 					Scalar(0, 0, 255), 2, 8, 0 );
-
 			}
 
 
 		imshow("Flat", copy);
 
-		// Find pixels of laser point
-		sx = sy = n = 0;
-		for (int y = 0; y < frame.rows; y++) {
-			for (int x = 0; x < frame.cols; x++){
-				uchar b = frame.data[frame.channels()*(frame.cols*y + x) + 0];
-				uchar g = frame.data[frame.channels()*(frame.cols*y + x) + 1];
-				uchar r = frame.data[frame.channels()*(frame.cols*y + x) + 2];
-
-				if (r >= thres[0][0] && r <= thres[0][1]
-					&& g >= thres[1][0] && g <= thres[1][1]
-					&& b >= thres[2][0] && b <= thres[2][1]) {
-					sx = x;
-					sy = y;
-					n++;
-				}
-				else {
-					frame.data[frame.channels()*(frame.cols*y + x) + 0] = 0;
-					frame.data[frame.channels()*(frame.cols*y + x) + 1] = 0;
-					frame.data[frame.channels()*(frame.cols*y + x) + 2] = 0;
-				}
-			}
-		}
+		n = find_laser_point(frame, &pt);
 
 		// Aiming point for frame
 		line(frame, center - Point(15, 0), center + Point(15, 0),
@@ -223,8 +235,6 @@ int main(int argc, char** argv)
 
 		// If shot happens
 		if (n > 0 && state == STATE_WAIT) {
-			Point pt(sx, sy);
-
 			shots.push_back(pt);
 
 			state = STATE_SHOT;
