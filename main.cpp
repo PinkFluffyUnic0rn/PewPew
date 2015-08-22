@@ -1,7 +1,7 @@
 #include "opencv2/opencv.hpp"
-#include <allegro5/allegro.h>
-#include <allegro5/allegro_audio.h>
-#include <allegro5/allegro_acodec.h> 
+//#include <allegro5/allegro.h>
+//#include <allegro5/allegro_audio.h>
+//#include <allegro5/allegro_acodec.h> 
 
 #include <iostream>
 #include <stdlib.h>
@@ -21,18 +21,19 @@ using namespace std;
 #define SPACE           32
 #define KEY_P		112
 
-struct aim
+struct Aim
 {
 	Mat image;
 	Point vel;
 	Point pos;
+	Point center;
 };
 
 //uchar thres[3][2] = { {0, 200}, {215, 255}, {0, 200} };
 
-struct color
+struct Color
 {
-	color(uchar cr, uchar cg, uchar cb) : r(cr), g(cg), b(cb) {}
+	Color(uchar cr, uchar cg, uchar cb) : r(cr), g(cg), b(cb) {}
 
 	uchar b;
 	uchar g;
@@ -41,10 +42,10 @@ struct color
 
 void init_allegro()
 {
-	al_init();
+/*	al_init();
 	al_install_audio();
 	al_init_acodec_addon();
-	al_reserve_samples(10);
+	al_reserve_samples(10);*/
 }
 
 void mouse_click(int e, int x, int y, int, void *arg)
@@ -106,7 +107,7 @@ Point2f center_point( const vector<Point2f> *v )
 	return sp;
 }
 
-double color_dist(struct color *c0, struct color *c1)
+double color_dist(struct Color *c0, struct Color *c1)
 {
 	return sqrt(pow(c0->b - c1->b, 2.0)
 		+ pow(c0->g - c1->g, 2.0)
@@ -125,13 +126,13 @@ uint *create_mask(const Mat *frame,
 
 	for (int y = 0; y < h; y++) {
 		for (int x = 0; x < w; x++) {
-			color c0 (frame->data[frame->channels() * (w * y + x) + 0],
+			struct Color c0 (frame->data[frame->channels() * (w * y + x) + 0],
 				frame->data[frame->channels() * (w * y + x) + 1],
 				frame->data[frame->channels() * (w * y + x) + 2]);
-			color c1 (prev_frame->data[prev_frame->channels() * (w * y + x) + 0],
+			struct Color c1 (prev_frame->data[prev_frame->channels() * (w * y + x) + 0],
 				prev_frame->data[prev_frame->channels() * (w * y + x) + 1],
 				prev_frame->data[prev_frame->channels() * (w * y + x) + 2]);
-			color dc (c1.b - c0.b, c1.g - c0.g, c1.r - c0.r);
+			struct Color dc (c1.b - c0.b, c1.g - c0.g, c1.r - c0.r);
 
 			if (color_dist(&c0, &c1) > coldist && (dc.g > 100))
 				mask[(w + 2) * (y + 1) + x + 1] = 1;	
@@ -182,7 +183,7 @@ bool find_laser_point(Mat *frame, Mat *bg, Point2f *point)
 
 	vector<Point2f> l_points;
 
-	for (int y = 1; y <= h; y++)
+	/*for (int y = 1; y <= h; y++)
 		for (int x = 1; x <= w; x++)
 			if (mask[(w + 2) * y + x]) {
 				l_points.push_back(Point2f(x-1,y-1));
@@ -193,7 +194,27 @@ bool find_laser_point(Mat *frame, Mat *bg, Point2f *point)
 				frame->data[frame->channels() * (w * (y - 1) + (x - 1)) + 0] = 0;
 				frame->data[frame->channels() * (w * (y - 1) + (x - 1)) + 1] = 0;
 				frame->data[frame->channels() * (w * (y - 1) + (x - 1)) + 2] = 0;
+			}*/
+
+	for (int y = 0; y < h; y++) {
+		for (int x = 0; x < w; x++) {
+			uchar r, g, b;
+			
+			b = frame->data[frame->channels() * (w * y + x) + 0];
+			g = frame->data[frame->channels() * (w * y + x) + 1];
+			r = frame->data[frame->channels() * (w * y + x) + 2];
+
+			if (r <= 90 && g >= 130 && b <= 90) {
+				l_points.push_back(Point2f(x-1,y-1));
+				n++;
+			} else {
+				frame->data[frame->channels() * (w * y + x) + 0] = 0;	
+				frame->data[frame->channels() * (w * y + x) + 1] = 0;
+				frame->data[frame->channels() * (w * y + x) + 2] = 0;
 			}
+			
+		}
+	}
 
 	*point = center_point( &l_points );
 
@@ -211,16 +232,33 @@ void draw_sprite(Mat *aim, Mat *mscreen, uint x_offset, uint y_offset)
 				&& y_offset >= 0
 				&& (y_offset + aim->rows) < mscreen->rows) {
 				
+		//		int idx = chan * (mscreen->cols * (y + y_offset) + x + x_offset);
+			//	int idx1 = chan * (aim->cols * y + x);
+				
+				/*mscreen->data[idx + 0] = aim->data[idx1 + 0];
+				mscreen->data[idx + 1] = aim->data[idx1 + 1];
+				mscreen->data[idx + 2] = aim->data[idx1 + 2];*/
 				memcpy(mscreen->data + chan * ((y + y_offset) * mscreen->cols + (x + x_offset)),
 					aim->data + chan * (y * aim->cols + x), sizeof(uchar) * 3);
 			}
+}
+
+int in_aim(struct Aim *aim, Point2f *shot)
+{
+	double r = (double)aim->image.cols / 2.0;
+	double x = (double)(aim->center + aim->pos).x;
+	double y = (double)(aim->center + aim->pos).y;
+	double x0 = (double)shot->x;
+	double y0 = (double)shot->y;
+
+	return (pow(x - x0, 2) + pow(y - y0, 2)) <= pow(r, 2);
 }
 
 int main(int argc, char** argv)
 {
 	// Init video capture device
 	Mat bg, frame;
-	struct aim aim;
+	struct Aim aim;
 	vector<Point> shots;
 	vector<Point2f> persp_quad;
 	int frame_w, frame_h;
@@ -241,19 +279,25 @@ int main(int argc, char** argv)
 	frame_h = capt.get(CV_CAP_PROP_FRAME_HEIGHT);
 		
 	aim.image = imread("sporti_black.png", CV_LOAD_IMAGE_COLOR);
-	aim.vel.x = 2.0;
-	aim.vel.y = 2.0;
-	aim.pos.x = capt.get(CV_CAP_PROP_FRAME_WIDTH) / 2;
-	aim.pos.y = capt.get(CV_CAP_PROP_FRAME_HEIGHT) / 2;
-	Mat mscreen(1080, 1920, CV_8UC3);
+	aim.vel.x = 0;
+	aim.vel.y = 0;
+	aim.center.x = aim.image.cols / 2;
+	aim.center.y = aim.image.rows / 2;
+	cout << aim.center.x << " " << aim.center.y << endl;
+//	aim.pos.x = capt.get(CV_CAP_PROP_FRAME_WIDTH) / 2;
+//	aim.pos.y = capt.get(CV_CAP_PROP_FRAME_HEIGHT) / 2;
+	aim.pos.x = 0;
+	aim.pos.y = 0;
+	Mat mscreen(768, 1368, CV_8UC3);
+	cout <<"cols " << mscreen.cols << "raws " << mscreen.rows << endl;
 
 	// Init allegro
-	init_allegro();
+/*	init_allegro();
 	ALLEGRO_SAMPLE *shot_sound = al_load_sample("blaster.wav");
 	ALLEGRO_SAMPLE *march = al_load_sample("march.wav");
-	ALLEGRO_SAMPLE *headshot_sound = al_load_sample("headshot.wav");
+	ALLEGRO_SAMPLE *headshot_sound = al_load_sample("headshot.wav");*/
 	
-	al_play_sample( march, 0.75f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL );
+//	al_play_sample( march, 0.75f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL );
 
 	// Create windows
 	namedWindow("Blackend", CV_WINDOW_AUTOSIZE);
@@ -282,9 +326,18 @@ int main(int argc, char** argv)
 			return -1;
 		}
 		
-		draw_sprite(&(aim.image), &mscreen,
+
+/*		draw_sprite(&(aim.image), &mscreen,
 			(int)aim.pos.x * mscreen.cols / frame_w - aim.image.cols / 2,
-			(int)aim.pos.y * mscreen.rows / frame_h - aim.image.rows / 2);
+			(int)aim.pos.y * mscreen.rows / frame_h - aim.image.rows / 2);*/
+			
+		draw_sprite(&(aim.image), &mscreen, (int)aim.pos.x, (int)aim.pos.y);
+		line(mscreen, aim.center + aim.pos - Point(15, 0), aim.center + aim.pos + Point(15, 0),
+			Scalar(0, 255, 0), 2, 8, 0);
+		line(mscreen, aim.center + aim.pos - Point(0, 15), aim.center + aim.pos + Point(0, 15),
+			Scalar(0, 255, 0), 2, 8, 0);
+		circle(mscreen, aim.center + aim.pos, aim.image.cols / 2, Scalar(0, 255, 0), 2, 8, 0);
+
 		imshow("Aims", mscreen);
 
 		if (persp_quad.size() != 4)
@@ -299,9 +352,9 @@ int main(int argc, char** argv)
 		n = find_laser_point(&frame, &bg, &pt);
 
 		// Aiming point for frame
-		line(frame, aim.pos - Point(15, 0), aim.pos + Point(15, 0),
+		line(frame, aim.center + aim.pos - Point(15, 0), aim.center + aim.pos + Point(15, 0),
 			Scalar(0, 255, 0), 2, 8, 0);
-		line(frame, aim.pos - Point(0, 15), aim.pos + Point(0, 15),
+		line(frame, aim.center + aim.pos - Point(0, 15), aim.center + aim.pos + Point(0, 15),
 			Scalar(0, 255, 0), 2, 8, 0);
 
 		// If shot happens
@@ -311,16 +364,17 @@ int main(int argc, char** argv)
 			state = STATE_SHOT;
 			line(frame, pt, aim.pos, Scalar(0, 255, 0), 1, 8, 0);	
 			
-			al_play_sample(shot_sound, 1.0f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL);
+		//	al_play_sample(shot_sound, 1.0f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL);
 			
 			double offset = sqrt(pow(pt.x - aim.pos.x, 2.0) + pow(pt.y - aim.pos.y, 2.0));
 
 			if (offset <= 15.0) {		
 				aim.pos.x = rand() % frame_w;
 				aim.pos.y = rand() % frame_h;
-				al_play_sample(headshot_sound, 1.0f, 0.0f,
-					1.0f, ALLEGRO_PLAYMODE_ONCE, NULL);
+			//	al_play_sample(headshot_sound, 1.0f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL);
 			}
+
+			int hit = in_aim(&aim, &pt);
 
 			cout << shots.size() << "th shot, offset: " << offset << endl;
 		} else if (n == 0)
@@ -376,6 +430,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-	al_destroy_sample(shot_sound);
+//	al_destroy_sample(shot_sound);
 	return 0;
 }
