@@ -29,9 +29,9 @@ struct Aim
 	Point center;
 };
 
-uchar thres[3][2] = { {0, 100}, {125, 255}, {0, 100} };
-int screen_w = 1920;
-int screen_h = 1080;
+uchar thres[3][2] = { {0, 75}, {0, 75}, {0, 255} };
+int screen_w = 1024;
+int screen_h = 768;
 
 struct Color
 {
@@ -84,8 +84,8 @@ void image_perspective(Mat *frame, Mat *out, vector<Point2f> *persp_quad)
 	inp[3] = (*persp_quad)[3];
 
 
-	outp[0] = Point2f(h*screen_w/screen_h, h);
-	outp[2] = Point2f(h*screen_w/screen_h, 0);
+	outp[0] = Point2f(w, h);
+	outp[2] = Point2f(w, 0);
 	outp[1] = Point2f(0, h);
 	outp[3] = Point2f(0, 0);;		
 
@@ -272,6 +272,11 @@ int main(int argc, char** argv)
 		return -1;
 	}
 	
+	capt.set(CV_CAP_PROP_FRAME_WIDTH, screen_w);
+	capt.set(CV_CAP_PROP_FRAME_HEIGHT, screen_h);
+
+
+	
 	frame_w = capt.get(CV_CAP_PROP_FRAME_WIDTH);
 	frame_h = capt.get(CV_CAP_PROP_FRAME_HEIGHT);
 		
@@ -294,9 +299,9 @@ int main(int argc, char** argv)
 	al_play_sample( march, 0.75f, 0.0f, 1.0f, ALLEGRO_PLAYMODE_ONCE, NULL );
 
 	// Create windows
-	namedWindow("Blackend", CV_WINDOW_AUTOSIZE);
-	namedWindow("Flat", CV_WINDOW_AUTOSIZE);
-	namedWindow("Aims", CV_WINDOW_FULLSCREEN);
+	namedWindow("Blackend", CV_WINDOW_NORMAL);
+	namedWindow("Flat", CV_WINDOW_NORMAL);
+	namedWindow("Aims", CV_WINDOW_NORMAL);
 
 	setMouseCallback( "Flat", mouse_click, &persp_quad );
 	capt.read(frame);
@@ -327,8 +332,8 @@ int main(int argc, char** argv)
 			Scalar(0, 255, 0), 2, 8, 0);
 		line(mscreen, aim.center + aim.pos - Point(0, 15), aim.center + aim.pos + Point(0, 15),
 			Scalar(0, 255, 0), 2, 8, 0);
-		circle(mscreen, aim.center + aim.pos, aim.image.cols / 2, Scalar(0, 255, 0), 2, 8, 0);
 */
+
 		imshow("Aims", mscreen);
 
 		if (persp_quad.size() != 4)
@@ -350,7 +355,8 @@ int main(int argc, char** argv)
 			Scalar(0, 255, 0), 2, 8, 0);
 		line(frame, aim_frame - Point(0, 15), aim_frame + Point(0, 15),
 			Scalar(0, 255, 0), 2, 8, 0);
-
+		circle(frame, aim.center + aim.pos, aim.image.cols / 2, Scalar(0, 0, 255), 2, 8, 0);
+		
 		// If shot happens
 		if (n > 0 && state == STATE_WAIT) {
 			shots.push_back(pt);
