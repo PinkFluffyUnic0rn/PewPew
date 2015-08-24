@@ -10,6 +10,7 @@
 #define STATE_SHOT 1
 #define STATE_WAIT 0
 
+#define VALUE_THRES 245
 enum KEY {	
 	ARROW_LEFT	= 65361,
 	ARROW_UP	= 65362,
@@ -17,12 +18,16 @@ enum KEY {
 	ARROW_DOWN 	= 65364,
 	ESC		= 27,
 	SPACE		= 32,
-	KEY_P		= 112
+	KEY_P		= 112,
+	KEY_PLUS	= 61,
+	KEY_MINUS	= 45
 };
 
 struct Aim {
 	IplImage *img;
 	CvPoint pos;
+	CvPoint center;
+	int radius;
 };
 
 struct Perspquad {
@@ -85,7 +90,7 @@ int getshot(IplImage *img, unsigned char *vdata, CvPoint *shot)
 		
 	for (y = 0; y < h; y++) {
 		for (x = 0; x < w; x++) {
-			if (vdata[y * w + x] == 255) {
+			if (vdata[y * w + x] >= 230) {
 				shot->x += x;
 				shot->y += y;
 				n++;
@@ -132,8 +137,8 @@ void drawaim(struct Aim *aim, IplImage *table)
 	h = aim->img->height;
 	w = aim->img->widthStep / 3;
 	tw = table->widthStep / 3;
-	ox = aim->pos.x;
-	oy = aim->pos.y;
+	ox = aim->pos.x - aim->img->width / 2;
+	oy = aim->pos.y - aim->img->height / 2;
 	chans = table->nChannels;
 	adata = (unsigned char*)aim->img->imageData;
 	tdata = (unsigned char*)table->imageData;
@@ -199,10 +204,10 @@ IplImage *persp(IplImage *in, struct Perspquad *perspquad, int w, int h)
 
 int ishit(CvPoint *shot, CvPoint *aimpos, int w, int h, int tw, int th, int d)
 {
-/*
-	int x = shot->x * tw / w;
-	int y = shot->y * th / h;
-*/
+
+//	int x = shot->x * tw / w;
+//	int y = shot->y * th / h;
+
 	int x = shot->x;
 	int y = shot->y;
 
@@ -215,22 +220,25 @@ int ishit(CvPoint *shot, CvPoint *aimpos, int w, int h, int tw, int th, int d)
 int main(int argc, char **argv)
 {
 	int dev, flag, maxshots, nshots, state;
-	int tw = 1920, th = 1080;
+	int tw = 1024, th = 768;
 	CvCapture *capt;
 	CvPoint *shots;
 	struct Aim aim;
 	IplImage *table;
 	struct Perspquad perspquad;
-	ALLEGRO_SAMPLE *shot_sound;
+	ALLEGRO_SAMPLE *shot_sound, *hit_sound;
 
 	dev = 0;
 	if (argc > 1)
 		dev = atoi(argv[1]);
 
 	capt = cvCaptureFromCAM(dev);
+	cvSetCaptureProperty(capt,CV_CAP_PROP_FRAME_WIDTH, 1024);
+	cvSetCaptureProperty(capt, CV_CAP_PROP_FRAME_HEIGHT, 768); 
 
 	init_allegro();
 	shot_sound = al_load_sample("shot.wav");
+	hit_sound = al_load_sample("headshot.wav");
 
 	flag = 1;
 	maxshots = 1024;
@@ -240,10 +248,13 @@ int main(int argc, char **argv)
 	shots = malloc(sizeof(CvPoint) * maxshots);
 
 
-	aim.img = cvLoadImage("aim.png", CV_LOAD_IMAGE_COLOR);
+	aim.img = cvLoadImage("aim2.png", CV_LOAD_IMAGE_COLOR);
 	printf("w=%d h=%d chans=%d\n", aim.img->width, aim.img->height, aim.img->nChannels);
-	aim.pos.x = 200;
-	aim.pos.y = 100;
+	aim.pos.x = tw / 2;
+	aim.pos.y = th / 2;
+	aim.radius = 40;
+	aim.center.x = tw / 2;
+	aim.center.y = th / 2;
 	table = cvCreateImage(cvSize(tw, th), aim.img->depth, aim.img->nChannels);
 
 	perspquad.pointc = 0;
@@ -279,7 +290,7 @@ int main(int argc, char **argv)
 		vdata = getvals(copy);
 		n = getshot(copy, vdata, &shot);
 		free(vdata);
-
+	
 		if (n > 0 && state == STATE_WAIT) {
 			al_play_sample(shot_sound, 1.0f, 0.0f, 1.0f,
 				ALLEGRO_PLAYMODE_ONCE, NULL);
@@ -293,15 +304,17 @@ int main(int argc, char **argv)
 				shots = realloc(shots, sizeof(CvPoint) * maxshots);
 			}
 
-			if (ishit(&shot, &(aim.pos),
-				flat->width, flat->height, tw, th, 15)) {
+			if (ishit(&(shot), &aim.center,
+				flat->width, flat->height, tw, th, aim.radius)) {
+	
+				al_play_sample(hit_sound, 1.0f, 0.0f, 1.0f,
+				ALLEGRO_PLAYMODE_ONCE, NULL);
+						
+			//	aim.pos.x = rand() % (tw - aim.img->width) + aim.img->width / 2;
+			//	aim.pos.y = rand() % (th - aim.img->height) + aim.img->height / 2;
 				
-				/*
-				aim.pos.x = rand() % tw;
-				aim.pos.y = rand() % th;
-				*/
-				aim.pos.x = rand() % flat->width;
-				aim.pos.y = rand() % flat->height;
+			//	aim.pos.x = rand() % flat->width;
+			//	aim.pos.y = rand() % flat->height;
 
 			}
 		} else if (n == 0) {
@@ -312,7 +325,8 @@ int main(int argc, char **argv)
 		for (i = 0; i < nshots; i++)
 			cvCircle(copy, shots[i], 5, CV_RGB(0, 255, 0), 2, 8, 0);
 		
-		cvCircle(copy, aim.pos, 5, CV_RGB(255, 0, 0), 2, 8, 0);
+		cvCircle(copy, aim.center, aim.radius, CV_RGB(255, 0, 0), 2, 8, 0);
+		cvCircle(flat, aim.center, aim.radius, CV_RGB(255, 0, 0), 2, 8, 0);
 
 		if (perspquad.pointc > 1 && perspquad.pointc < 4)
 			for (i = 0; i < perspquad.pointc; ++i) {
@@ -335,6 +349,24 @@ int main(int argc, char **argv)
 		switch ((key = cvWaitKey(10))) {
 		case ESC:
 			flag = 0;
+			break;
+		case ARROW_LEFT:
+			aim.center.x -= 1;
+			break;
+		case ARROW_RIGHT:
+			aim.center.x += 1;
+			break;
+		case ARROW_DOWN:
+			aim.center.y += 1;
+			break;
+		case ARROW_UP:
+			aim.center.y -= 1;
+			break;
+		case KEY_PLUS:
+			aim.radius += 1;
+			break;
+		case KEY_MINUS:
+			aim.radius -= 1;
 			break;
 		case KEY_P:
 			perspquad.pointc = 0;
